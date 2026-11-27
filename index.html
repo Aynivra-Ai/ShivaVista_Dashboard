@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Shiv-Vista — Call Desk</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        brand:'#8E2A3A', brandHover:'#731F2D', brandGold:'#C8972F', headerDark:'#2E1116', cream:'#FAF5F1'
+      }}}
+    }
+  </script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    body { font-family:'Inter',system-ui,sans-serif; background-color:#F3EEEA; }
+    ::-webkit-scrollbar{width:7px;height:7px}
+    ::-webkit-scrollbar-track{background:#EFE7E1}
+    ::-webkit-scrollbar-thumb{background:#D7C3BA;border-radius:4px}
+    ::-webkit-scrollbar-thumb:hover{background:#B99A8E}
+    #sidebar ::-webkit-scrollbar-track{background:transparent}
+    #sidebar ::-webkit-scrollbar-thumb{background:#4A2229}
+    .line-clamp-2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .seg{transition:all .15s}
+    .seg.active{background:#fff !important;box-shadow:0 1px 3px rgba(46,17,22,.18)}
+    .rpill{transition:all .12s}
+    .rpill.active{background:#8E2A3A !important;color:#fff !important;border-color:#8E2A3A !important}
+    .kpi{cursor:pointer;transition:transform .08s,box-shadow .12s,border-color .12s}
+    .kpi:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(46,17,22,.08)}
+    .kpi.active{border-color:#8E2A3A!important;box-shadow:0 0 0 2px #8E2A3A22}
+    @keyframes pulse2{0%{transform:scale(1)}50%{transform:scale(1.3)}100%{transform:scale(1)}}
+    .ping{animation:pulse2 .6s ease 3}
+    .ackBtn{transition:background .12s,transform .08s}
+    .ackBtn:active{transform:scale(.92)}
+    #sidebar{transition:transform .3s cubic-bezier(.22,.61,.36,1)}
+    #sideScrim{transition:opacity .3s}
+    #drawer{transition:transform .32s cubic-bezier(.22,.61,.36,1);transform:translateX(100%)}
+    #drawer.open{transform:translateX(0)}
+    #drawerScrim{transition:opacity .32s}
+    .wf{display:flex;align-items:center;gap:3px;height:52px;cursor:pointer}
+    .wf span{flex:1;border-radius:3px;background:rgba(255,255,255,.18);transition:background .1s;min-width:2px}
+    .wf span.on{background:#C8972F}
+    svg{display:block}
+  </style>
+</head>
+<body class="text-slate-800 antialiased min-h-screen">
+
+  <!-- ======================= SIDEBAR (the old control bar, now vertical) ======================= -->
+  <aside id="sidebar" class="fixed top-0 left-0 h-full w-64 bg-headerDark text-white z-50 flex flex-col -translate-x-full lg:translate-x-0 shadow-2xl lg:shadow-none">
+    <div class="h-1.5 bg-gradient-to-r from-brand via-brandGold to-brand"></div>
+
+    <!-- brand -->
+    <div class="px-5 py-5 border-b border-white/10">
+      <div class="flex items-start justify-between gap-2">
+        <div class="bg-white rounded-xl p-2 inline-flex items-center">
+          <!-- ===================================================================
+               LOGO: paste your logo data-URI into src below (copy it from the
+               src="data:image/png;base64,…" of <img id="brandLogo"> in your OLD file).
+               Until you do, the maroon/gold fallback mark shows.
+          ==================================================================== -->
+          <img id="brandLogo" alt="Shiv-Vista Homes" class="h-10 w-auto rounded-md object-contain"
+               src="PASTE_YOUR_LOGO_DATA_URI_HERE"
+               onerror="this.onerror=null;this.remove();var f=document.getElementById('brandFallback');f.classList.remove('hidden');f.classList.add('flex');">
+          <div id="brandFallback" class="hidden items-center h-10">
+            <span class="w-10 h-10 rounded-xl bg-brand text-brandGold flex items-center justify-center shadow-sm">
+              <span data-ic="flame" class="w-6 h-6 block"></span>
+            </span>
+          </div>
+        </div>
+        <button onclick="toggleSidebar(false)" class="lg:hidden text-rose-100/60 hover:text-white p-1 shrink-0"><span data-ic="xmark" class="w-5 h-5 block"></span></button>
+      </div>
+      <h1 class="mt-3 text-sm font-extrabold tracking-tight leading-tight text-white">SHIV-VISTA HOMES</h1>
+      <p class="text-[11px] font-semibold text-brandGold">Shivani · Call Desk</p>
+    </div>
+
+    <!-- controls -->
+    <div class="flex-grow overflow-y-auto px-4 py-5 space-y-6">
+
+      <!-- live -->
+      <div class="flex items-center justify-between bg-emerald-400/10 border border-emerald-400/30 rounded-xl px-3 py-2.5">
+        <span class="inline-flex items-center gap-2 text-[11px] font-bold text-emerald-300">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Live feed
+        </span>
+        <strong id="liveCount" class="text-sm font-extrabold text-white">0</strong>
+      </div>
+
+      <!-- direction -->
+      <div>
+        <p class="text-[10px] font-bold tracking-wider text-rose-100/60 uppercase mb-2">Telephony Direction</p>
+        <div class="flex flex-col gap-1.5">
+          <button data-dir="all" onclick="setDir('all')" class="seg active w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-bold text-slate-700">
+            <span class="flex items-center gap-2"><span data-ic="layers" class="w-3.5 h-3.5 block"></span> All</span>
+            <span id="cAll" class="text-[10px] font-extrabold bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded">0</span>
+          </button>
+          <button data-dir="inbound" onclick="setDir('inbound')" class="seg w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-bold text-white/80 bg-white/5 hover:bg-white/10">
+            <span class="flex items-center gap-2"><span data-ic="arrow-down-left" class="w-3.5 h-3.5 block text-emerald-300"></span> Incoming</span>
+            <span id="cIn" class="text-[10px] font-extrabold bg-white/20 px-1.5 py-0.5 rounded">0</span>
+          </button>
+          <button data-dir="outbound" onclick="setDir('outbound')" class="seg w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-bold text-white/80 bg-white/5 hover:bg-white/10">
+            <span class="flex items-center gap-2"><span data-ic="arrow-up-right" class="w-3.5 h-3.5 block text-brandGold"></span> Outgoing</span>
+            <span id="cOut" class="text-[10px] font-extrabold bg-white/20 px-1.5 py-0.5 rounded">0</span>
+          </button>
+        </div>
+        <div id="dirHint" class="hidden mt-2 text-[10px] text-brandGold/90 font-semibold flex items-start gap-1.5 leading-snug">
+          <span data-ic="info" class="w-3.5 h-3.5 block shrink-0 mt-px"></span>
+          <span>No direction data in the feed yet — return <code class="bg-black/30 px-1 rounded">inboundLeads</code>/<code class="bg-black/30 px-1 rounded">outboundLeads</code> (or a <code class="bg-black/30 px-1 rounded">direction</code> field).</span>
+        </div>
+      </div>
+
+      <!-- range -->
+      <div>
+        <p class="text-[10px] font-bold tracking-wider text-rose-100/60 uppercase mb-2">Time range</p>
+        <div class="grid grid-cols-2 gap-1.5">
+          <button data-range="1" onclick="setRange('1')" class="rpill px-2.5 py-2 rounded-lg text-[11px] font-bold text-white/70 border border-transparent bg-white/5 hover:bg-white/10">Today</button>
+          <button data-range="7" onclick="setRange('7')" class="rpill px-2.5 py-2 rounded-lg text-[11px] font-bold text-white/70 border border-transparent bg-white/5 hover:bg-white/10">7 days</button>
+          <button data-range="30" onclick="setRange('30')" class="rpill px-2.5 py-2 rounded-lg text-[11px] font-bold text-white/70 border border-transparent bg-white/5 hover:bg-white/10">1 month</button>
+          <button data-range="all" onclick="setRange('all')" class="rpill active px-2.5 py-2 rounded-lg text-[11px] font-bold border border-transparent">All</button>
+        </div>
+      </div>
+
+      <!-- actions -->
+      <div class="space-y-2 pt-1">
+        <button id="bellBtn" onclick="toggleNotif()" class="w-full bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-semibold px-3 py-2.5 rounded-lg flex items-center justify-between transition">
+          <span class="flex items-center gap-2"><span data-ic="bell" class="w-4 h-4 block text-brandGold"></span> Alerts</span>
+          <strong id="notifBadge" class="bg-brandGold text-headerDark px-1.5 py-0.5 rounded-full text-[10px] font-extrabold">0</strong>
+        </button>
+        <button onclick="refreshData()" class="w-full bg-brand hover:bg-brandHover text-white text-xs font-semibold px-3 py-2.5 rounded-lg flex items-center justify-center gap-2 transition active:scale-95">
+          <span data-ic="refresh" id="refreshIcon" class="w-4 h-4 block"></span> Refresh
+        </button>
+      </div>
+    </div>
+
+    <!-- footer -->
+    <div class="px-4 py-3 border-t border-white/10 text-[11px] text-rose-100/50 font-semibold">
+      Updated <span id="genAt" class="text-rose-50">—</span>
+    </div>
+  </aside>
+
+  <!-- mobile scrim for the sidebar -->
+  <div id="sideScrim" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm opacity-0 pointer-events-none z-40 lg:hidden" onclick="toggleSidebar(false)"></div>
+
+  <!-- ======================= MAIN COLUMN ======================= -->
+  <div class="lg:ml-64 min-h-screen flex flex-col">
+
+    <!-- top bar -->
+    <header class="bg-white border-b border-slate-200 px-4 sm:px-8 py-3 flex flex-wrap items-center justify-between gap-3 shadow-sm sticky top-0 z-30">
+      <div class="flex items-center gap-3 min-w-0">
+        <button onclick="toggleSidebar(true)" class="lg:hidden text-brand p-1 -ml-1 shrink-0"><span data-ic="menu" class="w-6 h-6 block"></span></button>
+        <div class="min-w-0">
+          <h2 class="text-base sm:text-lg font-extrabold tracking-tight text-brand leading-tight flex items-center gap-2">
+            Call Desk Analytics
+            <span class="hidden sm:inline-flex items-center gap-1.5 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Live Telephony Sync
+            </span>
+          </h2>
+          <p class="text-[11px] font-semibold text-slate-500 truncate">Inbound &amp; Outbound Call Desk · Shivani Voice Agent</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="openSheet()" class="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3.5 py-2 rounded-lg flex items-center gap-2 transition active:scale-95">
+          <span data-ic="external" class="w-4 h-4 block text-brand"></span><span class="hidden sm:inline">Open full sheet</span>
+        </button>
+        <button onclick="exportExcel()" class="bg-brand hover:bg-brandHover text-white text-xs font-semibold px-3.5 py-2 rounded-lg flex items-center gap-2 transition shadow-sm active:scale-95">
+          <span data-ic="download" class="w-4 h-4 block"></span><span>Export</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 w-full space-y-6 flex-grow">
+
+      <!-- config banner (shown only when API_URL is not set) -->
+      <div id="cfgBanner" class="hidden bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold px-4 py-3 rounded-xl flex items-center gap-2">
+        <span data-ic="info" class="w-4 h-4 block shrink-0"></span>
+        <span>Showing sample data. Set <code class="bg-amber-100 px-1 rounded">API_URL</code> (top of the script) to your Apps Script Web App <code class="bg-amber-100 px-1 rounded">/exec</code> URL to go live.</span>
+      </div>
+
+      <!-- filters -->
+      <section class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div>
+            <label class="block text-[11px] font-bold text-slate-500 mb-1">Temperature</label>
+            <select id="fTemp" onchange="onFilterChange()" class="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2 focus:bg-white focus:border-brand outline-none">
+              <option value="all">All</option><option value="Hot">Hot</option><option value="Medium">Medium</option><option value="Cold">Cold</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-500 mb-1">Purpose</label>
+            <select id="fPurpose" onchange="onFilterChange()" class="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2 focus:bg-white focus:border-brand outline-none">
+              <option value="all">All</option><option value="Family Move-in">Family Move-in</option><option value="Investment">Investment</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-500 mb-1">Sort by</label>
+            <select id="fSort" onchange="onFilterChange()" class="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2 focus:bg-white focus:border-brand outline-none">
+              <option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="az">Name A–Z</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-500 mb-1">Search</label>
+            <div class="relative">
+              <input type="text" id="fSearch" onkeyup="onFilterChange()" placeholder="Name, phone, summary…" class="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2 pr-7 focus:bg-white focus:border-brand outline-none">
+              <span data-ic="search" class="w-3.5 h-3.5 block absolute right-2.5 top-2.5 text-slate-400"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- KPI CARDS -->
+      <section class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        <div class="kpi bg-white rounded-2xl p-5 border-2 border-brand shadow-sm" data-kpi="all" onclick="kpiClick('all')">
+          <div class="flex items-center justify-between">
+            <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Calls</div>
+            <div class="w-8 h-8 rounded-lg bg-rose-50 text-brand flex items-center justify-center"><span data-ic="headset" class="w-4 h-4 block"></span></div>
+          </div>
+          <div class="text-3xl font-extrabold text-slate-900 my-1" id="kpiTotal">0</div>
+          <div class="flex items-center gap-2 text-[11px] font-bold">
+            <span class="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded flex items-center gap-1"><span data-ic="arrow-down-left" class="w-3 h-3 block"></span><span id="kpiIn">0</span> In</span>
+            <span class="text-brand bg-rose-50 px-1.5 py-0.5 rounded flex items-center gap-1"><span data-ic="arrow-up-right" class="w-3 h-3 block"></span><span id="kpiOut">0</span> Out</span>
+          </div>
+        </div>
+
+        <div class="kpi bg-white rounded-2xl p-5 border border-slate-200 shadow-sm" data-kpi="visits" onclick="kpiClick('visits')">
+          <div class="flex items-center justify-between">
+            <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Visits Booked</div>
+            <div class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center"><span data-ic="user-check" class="w-4 h-4 block"></span></div>
+          </div>
+          <div class="text-3xl font-extrabold text-emerald-700 my-1" id="kpiVisits">0</div>
+          <div class="text-[11px] text-slate-500 font-semibold">Call→Visit <span id="kpiRate" class="text-slate-900 font-bold">0%</span></div>
+        </div>
+
+        <div class="kpi bg-white rounded-2xl p-5 border border-slate-200 shadow-sm" data-kpi="hot" onclick="kpiClick('hot')">
+          <div class="flex items-center justify-between">
+            <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Hot Leads</div>
+            <div class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center"><span data-ic="flame" class="w-4 h-4 block"></span></div>
+          </div>
+          <div class="text-3xl font-extrabold text-rose-600 my-1" id="kpiHot">0</div>
+          <div class="text-[11px] text-slate-500 font-medium">Click to view</div>
+        </div>
+
+        <div class="kpi bg-white rounded-2xl p-5 border border-slate-200 shadow-sm" data-kpi="callbacks" onclick="kpiClick('callbacks')">
+          <div class="flex items-center justify-between">
+            <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Exec Callbacks</div>
+            <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center"><span data-ic="phone" class="w-4 h-4 block"></span></div>
+          </div>
+          <div class="text-3xl font-extrabold text-amber-600 my-1" id="kpiCallbacks">0</div>
+          <div class="text-[11px] text-slate-500 font-medium"><span id="kpiCbOpen">0</span> not yet cleared</div>
+        </div>
+
+        <div class="kpi bg-white rounded-2xl p-5 border border-slate-200 shadow-sm" data-kpi="pickup" onclick="kpiClick('pickup')">
+          <div class="flex items-center justify-between">
+            <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Pickup Req.</div>
+            <div class="w-8 h-8 rounded-lg bg-amber-50 text-brandGold flex items-center justify-center"><span data-ic="car" class="w-4 h-4 block"></span></div>
+          </div>
+          <div class="text-3xl font-extrabold text-brandGold my-1" id="kpiPickup">0</div>
+          <div class="text-[11px] text-slate-500 font-medium">Click to view</div>
+        </div>
+      </section>
+
+      <!-- CHARTS -->
+      <section class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm lg:col-span-2">
+          <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <div>
+              <h3 class="text-sm font-bold text-slate-900">Hourly Call Volume vs On-Site Arrivals</h3>
+              <p class="text-[11px] text-slate-400">Inbound, outbound &amp; booked visits by hour</p>
+            </div>
+            <div class="flex items-center gap-3 text-[11px] font-semibold">
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span>Inbound</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-brand"></span>Outbound</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-brandGold"></span>Visits</span>
+            </div>
+          </div>
+          <div class="h-64 relative"><canvas id="hourChart"></canvas></div>
+        </div>
+
+        <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+          <h3 class="text-sm font-bold text-slate-900">Channel &amp; Lead Split</h3>
+          <p class="text-[11px] text-slate-400 mb-4">Conversion by direction</p>
+          <div class="space-y-4">
+            <div>
+              <div class="flex items-center justify-between text-[11px] font-bold mb-1">
+                <span class="text-emerald-700 flex items-center gap-1"><span data-ic="arrow-down-left" class="w-3 h-3 block"></span> Inbound Conversion</span>
+                <span id="convInLbl" class="text-slate-900">0%</span>
+              </div>
+              <div class="h-2.5 bg-slate-100 rounded-full overflow-hidden"><div id="convInBar" class="h-full bg-emerald-500 rounded-full" style="width:0%"></div></div>
+            </div>
+            <div>
+              <div class="flex items-center justify-between text-[11px] font-bold mb-1">
+                <span class="text-brand flex items-center gap-1"><span data-ic="arrow-up-right" class="w-3 h-3 block"></span> Outbound Conversion</span>
+                <span id="convOutLbl" class="text-slate-900">0%</span>
+              </div>
+              <div class="h-2.5 bg-slate-100 rounded-full overflow-hidden"><div id="convOutBar" class="h-full bg-brand rounded-full" style="width:0%"></div></div>
+            </div>
+          </div>
+          <div class="mt-5 pt-4 border-t border-slate-100">
+            <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Lead Temperature</div>
+            <div class="grid grid-cols-3 gap-2 text-center">
+              <div class="bg-rose-50 border border-rose-200 rounded-lg py-2"><div class="text-lg font-extrabold text-rose-600" id="tHot">0</div><div class="text-[10px] font-semibold text-rose-500">Hot</div></div>
+              <div class="bg-amber-50 border border-amber-200 rounded-lg py-2"><div class="text-lg font-extrabold text-amber-600" id="tMed">0</div><div class="text-[10px] font-semibold text-amber-500">Medium</div></div>
+              <div class="bg-slate-50 border border-slate-200 rounded-lg py-2"><div class="text-lg font-extrabold text-slate-600" id="tCold">0</div><div class="text-[10px] font-semibold text-slate-400">Cold</div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TABLE -->
+      <section class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="bg-headerDark px-6 py-4 text-white flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 class="text-sm font-bold tracking-wide">Call Log &amp; Customer Queries</h3>
+            <p class="text-xs text-rose-100/60">Direction, caller, lead score, visits, callbacks, pickup &amp; summary</p>
+          </div>
+          <div id="drillChip" class="hidden items-center gap-2 bg-white/10 border border-white/20 text-white text-xs px-3 py-1.5 rounded-full">
+            <span>Showing: <strong id="drillLabel">All</strong></span>
+            <button onclick="kpiClick('all')" class="hover:text-brandGold"><span data-ic="xmark" class="w-3.5 h-3.5 block"></span></button>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-[1100px] table-fixed text-left border-collapse text-xs">
+            <colgroup>
+              <col style="width:5%"><col style="width:15%"><col style="width:7%"><col style="width:12%"><col style="width:10%">
+              <col style="width:11%"><col style="width:11%"><col style="width:19%"><col style="width:10%">
+            </colgroup>
+            <thead>
+              <tr class="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 uppercase tracking-wider text-[10px]">
+                <th class="py-3 px-3">Dir</th><th class="py-3 px-3">Caller</th><th class="py-3 px-3">Score</th>
+                <th class="py-3 px-3">Purpose &amp; visitors</th><th class="py-3 px-3">Site visit</th><th class="py-3 px-3">Callback</th>
+                <th class="py-3 px-3">Origin / Pickup</th><th class="py-3 px-3">Summary</th><th class="py-3 px-3 text-center">Recording</th>
+              </tr>
+            </thead>
+            <tbody id="tbody" class="divide-y divide-slate-200 text-slate-700"></tbody>
+          </table>
+        </div>
+        <div class="bg-slate-50 px-6 py-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
+          <div>Showing <span id="rangeLbl" class="font-bold text-slate-800">0</span> of <span id="totCount" class="font-bold text-slate-800">0</span></div>
+          <div id="pager" class="flex items-center gap-1"></div>
+          <span class="text-[11px] text-slate-400">Shiv-Vista · Shivani CRM</span>
+        </div>
+      </section>
+    </main>
+
+    <footer class="bg-white border-t border-slate-200 py-4 px-6 text-center text-xs text-slate-400">
+      Shiv-Vista Homes · Baviskar Build Reality · Shivani Voice Agent Dashboard &copy; 2026
+    </footer>
+  </div>
+
+  <!-- ======================= NOTIFICATION PANEL (flyout beside the sidebar) ======================= -->
+  <div id="notifPanel" class="hidden fixed top-20 left-4 lg:left-[17rem] w-[440px] max-w-[92vw] bg-white text-slate-800 rounded-xl shadow-2xl border border-slate-200 overflow-hidden z-[55]">
+    <div class="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+      <span class="text-sm font-bold text-slate-800">Action needed</span>
+      <button onclick="toggleNotif()" class="text-slate-400 hover:text-slate-600"><span data-ic="xmark" class="w-4 h-4 block"></span></button>
+    </div>
+    <div class="max-h-[70vh] overflow-y-auto divide-y divide-slate-100" id="notifBody">
+      <div class="p-6 text-center text-slate-400 text-sm">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ======================= DRAWER ======================= -->
+  <div id="drawerScrim" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm opacity-0 pointer-events-none z-40" onclick="closeDrawer()"></div>
+  <aside id="drawer" class="fixed top-0 right-0 h-full w-full max-w-[480px] bg-cream shadow-2xl z-50 flex flex-col">
+    <div class="px-5 py-4 bg-white border-b border-slate-200 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3 min-w-0">
+        <div id="dDirIcon" class="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 bg-emerald-100 text-emerald-600"></div>
+        <div class="min-w-0">
+          <h4 class="font-bold text-base text-slate-900 truncate" id="dName">—</h4>
+          <p class="text-xs text-slate-500 truncate"><a id="dPhone" href="#" class="text-brand font-semibold">—</a> <span id="dCallTime"></span></p>
+        </div>
+      </div>
+      <button onclick="closeDrawer()" class="text-slate-400 hover:text-slate-700 p-1 shrink-0"><span data-ic="xmark" class="w-5 h-5 block"></span></button>
+    </div>
+
+    <div class="flex-grow overflow-y-auto p-5 space-y-4">
+      <div id="dAudioCard" class="bg-headerDark rounded-2xl p-5 text-white">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-bold flex items-center gap-2 text-brandGold"><span data-ic="volume" class="w-4 h-4 block"></span> HD Audio Recording</span>
+          <span class="text-xs font-semibold text-white/60" id="dDuration">—</span>
+        </div>
+        <div class="wf mb-4" id="dWave"></div>
+        <div class="flex items-center justify-between">
+          <button id="dPlayBtn" onclick="togglePlay()" class="bg-brand hover:bg-brandHover text-white text-sm font-bold px-5 py-2.5 rounded-xl flex items-center gap-2 transition active:scale-95">
+            <span id="dPlayIcon" class="w-4 h-4 block"></span> <span id="dPlayLbl">Play Audio</span>
+          </button>
+          <span class="text-xs font-semibold text-white/60">Progress: <span id="dProgress">0%</span></span>
+        </div>
+        <audio id="aud" class="hidden"></audio>
+      </div>
+      <div id="dNoAudio" class="hidden bg-white border border-dashed border-slate-300 rounded-2xl p-5 text-center text-sm text-slate-400">
+        <span data-ic="mic-off" class="w-6 h-6 block mx-auto mb-1"></span> No recording available for this call.
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 border border-slate-200">
+        <div class="text-sm font-bold text-slate-900 flex items-center gap-2 mb-2"><span data-ic="sparkles" class="w-4 h-4 block text-brand"></span> AI Conversation Summary &amp; Intent</div>
+        <p id="dSummary" class="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">—</p>
+        <div id="dPills" class="flex flex-wrap gap-2 mt-3"></div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 border border-slate-200 flex items-center justify-between gap-3">
+        <div>
+          <div class="text-sm font-bold text-slate-900">Site Visit Status</div>
+          <div class="text-[11px] text-slate-500" id="dVisitWhen">Update arrival status</div>
+        </div>
+        <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+          <button id="dVisited" onclick="setArrived(true)" class="px-3 py-1.5 rounded-lg text-xs font-bold transition">Visited</button>
+          <button id="dPending" onclick="setArrived(false)" class="px-3 py-1.5 rounded-lg text-xs font-bold transition">Pending</button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 border border-slate-200">
+        <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3">Full Speaker Transcript</div>
+        <div id="dTranscript" class="space-y-3"></div>
+      </div>
+    </div>
+  </aside>
+
+  <div id="toasts" class="fixed bottom-4 right-4 z-[60] space-y-2"></div>
+
+  <script>
+    /* =========================================================================
+       BACKEND CONFIG — set these, then host anywhere (GitHub Pages, etc.)
+       API_URL  : your Apps Script Web App URL ending in /exec (the same one Bolna
+                  posts to — do NOT copy the ?token=… part).
+       API_TOKEN: leave '' unless you set DASHBOARD_KEY in Script Properties.
+                  NEVER put WEBHOOK_TOKEN here — it is visible in view-source and
+                  would let anyone post fake calls into your sheet.
+       ========================================================================= */
+    const API_URL   = "";   // <-- paste https://script.google.com/macros/s/…/exec
+    const API_TOKEN = "";   // <-- optional, must equal DASHBOARD_KEY if you set one
+
+    /* ===== inline SVG icons (no external font; always render) ===== */
+    const ICN = {
+      'xmark':{d:['M18 6 6 18','m6 6 12 12']},
+      'menu':{d:['M4 6h16','M4 12h16','M4 18h16']},
+      'arrow-down-left':{d:['M17 7 7 17','M17 17H7V7']},
+      'arrow-up-right':{d:['M7 7h10v10','M7 17 17 7']},
+      'layers':{d:['M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z','M2 12.1l9.17 4.16a2 2 0 0 0 1.66 0L22 12.1','M2 16.1l9.17 4.16a2 2 0 0 0 1.66 0L22 16.1']},
+      'bell':{d:['M10.27 21a2 2 0 0 0 3.46 0','M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.96 18 12.5 18 8A6 6 0 0 0 6 8c0 4.5-1.41 5.96-2.74 7.33']},
+      'refresh':{d:['M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8','M3 3v5h5']},
+      'external':{d:['M15 3h6v6','M10 14 21 3','M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6']},
+      'download':{d:['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4','M7 10l5 5 5-5','M12 15V3']},
+      'info':{c:[[12,12,10]],d:['M12 16v-4','M12 8h.01']},
+      'user-check':{d:['M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2','m16 11 2 2 4-4'],c:[[9,7,4]]},
+      'flame':{d:['M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5Z']},
+      'phone':{d:['M13.83 16.57a1 1 0 0 0 1.21-.3l.36-.47A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.47.35a1 1 0 0 0-.29 1.23 14 14 0 0 0 6.39 6.39Z']},
+      'car':{d:['M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2','M7 17h8'],c:[[7,17,2],[17,17,2]]},
+      'search':{c:[[11,11,8]],d:['m21 21-4.3-4.3']},
+      'volume':{d:['M11 4.7a.7.7 0 0 0-1.2-.5L6.4 7.6A1.4 1.4 0 0 1 5.4 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.4a1.4 1.4 0 0 1 1 .4l3.4 3.4a.7.7 0 0 0 1.2-.5z','M16 9a5 5 0 0 1 0 6','M19.36 18.36a9 9 0 0 0 0-12.72']},
+      'play':{fill:'M6 3 20 12 6 21Z'},
+      'pause':{fill:'M6 4h4v16H6zM14 4h4v16h-4z'},
+      'sparkles':{d:['M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.14-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.14a.5.5 0 0 1 .96 0L14.06 8.5A2 2 0 0 0 15.5 9.94l6.14 1.58a.5.5 0 0 1 0 .96L15.5 14.06a2 2 0 0 0-1.44 1.44l-1.58 6.14a.5.5 0 0 1-.96 0z']},
+      'mic-off':{d:['m2 2 20 20','M18.89 13.23A7.12 7.12 0 0 0 19 12v-2','M5 10v2a7 7 0 0 0 12 5','M15 9.34V5a3 3 0 0 0-5.68-1.33','M9 9v3a3 3 0 0 0 5.12 2.12','M12 19v3'] },
+      'check':{d:['M20 6 9 17l-5-5']},
+      'folder-open':{d:['m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2']},
+      'headset':{d:['M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5a9 9 0 0 1 18 0v5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3']}
+    };
+    function ic(name, cls){
+      const i=ICN[name]; if(!i) return '';
+      if(i.fill) return '<svg viewBox="0 0 24 24" class="'+(cls||'')+'" fill="currentColor" aria-hidden="true"><path d="'+i.fill+'"/></svg>';
+      let inner=(i.d||[]).map(d=>'<path d="'+d+'"/>').join('')+(i.c||[]).map(c=>'<circle cx="'+c[0]+'" cy="'+c[1]+'" r="'+c[2]+'"/>').join('');
+      return '<svg viewBox="0 0 24 24" class="'+(cls||'')+'" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+inner+'</svg>';
+    }
+    function paintIcons(root){ (root||document).querySelectorAll('[data-ic]').forEach(el=>{ el.innerHTML=ic(el.getAttribute('data-ic'),'w-full h-full'); }); }
+
+    /* ===== state ===== */
+    let ALL=[], KEYMAP={}, activeKpi='all', activeDir='all', activeRange='all';
+    let hourChart=null, lastVisitIds=null, lastCbIds=null, drawerKey=null, sheetUrl='';
+    const LOCAL_ACK={}, POLL_MS=20000;
+    let TABLE_ROWS=[], currentPage=1; const PAGE_SIZE=10;
+
+    const SAMPLE=[
+      { leadId:'ex-1', direction:'inbound', name:'Srushti Kalambe', phone:'8830155702', temp:'Hot', purpose:'Family Move-in', visitors:'2', timeline:'Plans to visit soon', flatSize:'1 BHK', visitDate:'2026-11-16', visitTime:'14:00', callbackAt:'', needsCallback:false, origin:'Vashi', pickup:true, pickupArea:'Vashi', shareDetails:'Brochure', arrived:false, sentiment:'Positive (92%)', intent:'Book site visit',
+        summary:'Interested in 1 BHK for family. Visit booked for Sunday afternoon. Asked about carpet area and amenities.',
+        transcript:[
+          {role:'ai', name:'Shivani (Voice AI)', time:'00:02', text:'Namaste! Shiv-Vista Homes mein aapka swagat hai. Main Shivani bol rahi hoon. Kaise madad karun?'},
+          {role:'caller', name:'Srushti', time:'00:09', text:'Haan, mujhe 1 BHK ke baare mein jaankari chahiye thi, family ke liye.'},
+          {role:'ai', name:'Shivani (Voice AI)', time:'00:15', text:'Bilkul. 1 BHK ka carpet area 410 sq.ft. hai, clubhouse aur covered parking ke saath. Site visit book karun?'},
+          {role:'caller', name:'Srushti', time:'00:24', text:'Haan, Sunday 2 baje theek rahega.'}
+        ],
+        recordingUrl:'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3', callDate:'2026-11-14', callMs:Date.now()-3600000, callDisplay:'14 Nov, 13:30', visitAck:false, callbackAck:false },
+      { leadId:'ex-2', direction:'inbound', name:'Bhavana Rao', phone:'9224452231', temp:'Medium', purpose:'Family Move-in', visitors:'3', timeline:'', flatSize:'2 BHK', visitDate:'', visitTime:'', callbackAt:'2026-11-15 10:00', needsCallback:true, origin:'Kalyan', pickup:false, pickupArea:'', shareDetails:'', arrived:false, sentiment:'Neutral', intent:'Pricing enquiry',
+        summary:'Wants to speak to an executive about pricing and payment plan.',
+        transcript:[{role:'ai', name:'Shivani (Voice AI)', time:'00:03', text:'Shiv-Vista Homes, Shivani this side. How can I help?'},{role:'caller', name:'Bhavana', time:'00:10', text:'Can someone call me about the 2 BHK payment plan?'}],
+        recordingUrl:'', callDate:'2026-11-14', callMs:Date.now()-7200000, callDisplay:'14 Nov, 11:10', visitAck:false, callbackAck:false },
+      { leadId:'ex-3', direction:'outbound', name:'Sunil Yadav', phone:'8828148932', temp:'Hot', purpose:'Investment', visitors:'2', timeline:'1-2 months', flatSize:'2 BHK', visitDate:'2026-11-16', visitTime:'17:30', callbackAt:'', needsCallback:false, origin:'Dombivli', pickup:false, pickupArea:'', shareDetails:'Floor Plan', arrived:true, sentiment:'Positive (88%)', intent:'Finalize booking',
+        summary:'Outbound follow-up. Eager to finalize 2 BHK booking as investment.',
+        transcript:[{role:'ai', name:'Shivani (Voice AI)', time:'00:02', text:'Hello Sunil ji, Shiv-Vista Homes se Shivani. Aapne 2 BHK ke liye interest dikhaya tha.'},{role:'caller', name:'Sunil', time:'00:11', text:'Haan, investment ke liye. Sunday ko site visit kar sakta hoon.'}],
+        recordingUrl:'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3', callDate:'2026-11-13', callMs:Date.now()-90000000, callDisplay:'13 Nov, 16:00', visitAck:false, callbackAck:false },
+      { leadId:'ex-4', direction:'outbound', name:'Aarti Deshmukh', phone:'9870012233', temp:'Cold', purpose:'Investment', visitors:'1', timeline:'6+ months', flatSize:'1 BHK', visitDate:'', visitTime:'', callbackAt:'', needsCallback:false, origin:'Thane', pickup:false, pickupArea:'', shareDetails:'', arrived:false, sentiment:'Negative', intent:'Not interested now',
+        summary:'Outbound call. Not looking to buy right now, asked to be contacted after 6 months.',
+        transcript:[{role:'ai', name:'Shivani (Voice AI)', time:'00:02', text:'Hello Aarti ji, Shiv-Vista Homes se baat kar rahi hoon.'},{role:'caller', name:'Aarti', time:'00:08', text:'Abhi interest nahi hai, baad mein dekhenge.'}],
+        recordingUrl:'', callDate:'2026-11-13', callMs:Date.now()-100000000, callDisplay:'13 Nov, 12:20', visitAck:false, callbackAck:false }
+    ];
+
+    window.onload=function(){
+      paintIcons();
+      initWave();
+      loadSheetUrl();
+      refreshData();
+      setInterval(pollData, POLL_MS);
+      const a=document.getElementById('aud');
+      a.addEventListener('loadedmetadata', onMeta);
+      a.addEventListener('timeupdate', onTime);
+      a.addEventListener('ended', onEnded);
+    };
+    document.addEventListener('click', function(e){
+      const p=document.getElementById('notifPanel'), b=document.getElementById('bellBtn');
+      if(!p.classList.contains('hidden') && !p.contains(e.target) && !b.contains(e.target)) p.classList.add('hidden');
+    });
+
+    /* ===== sidebar (mobile) ===== */
+    function toggleSidebar(open){
+      const sb=document.getElementById('sidebar'), sc=document.getElementById('sideScrim');
+      if(open){ sb.classList.remove('-translate-x-full'); sc.classList.remove('opacity-0','pointer-events-none'); }
+      else { sb.classList.add('-translate-x-full'); sc.classList.add('opacity-0','pointer-events-none'); }
+    }
+
+    /* ===== backend (fetch against the Apps Script Web App) ===== */
+    function apiGet(params){
+      const u=new URL(API_URL);
+      Object.keys(params).forEach(k=>u.searchParams.set(k,params[k]));
+      if(API_TOKEN) u.searchParams.set('key',API_TOKEN);
+      return fetch(u.toString(),{method:'GET',redirect:'follow'}).then(r=>r.json());
+    }
+    function showConfigBanner(){ const b=document.getElementById('cfgBanner'); if(b) b.classList.remove('hidden'); }
+
+    function refreshData(){ fetchPayload(false); }
+    function pollData(){ fetchPayload(true); }
+    function fetchPayload(isPoll){
+      const ic2=document.getElementById('refreshIcon'); if(!isPoll) ic2.classList.add('animate-spin');
+      if(!API_URL){
+        setTimeout(()=>{ ic2.classList.remove('animate-spin'); showConfigBanner(); onPayload({leads:SAMPLE,generatedAt:'(sample)'},isPoll); },150);
+        return;
+      }
+      apiGet({action:'payload'})
+        .then(p=>{ ic2.classList.remove('animate-spin'); if(!p || p.ok===false) throw new Error((p&&p.error)||'bad payload'); onPayload(p,isPoll); })
+        .catch(err=>{ ic2.classList.remove('animate-spin'); console.warn('fetchPayload:',err); if(!isPoll) toast('⚠️ Could not reach backend — check API_URL and that the Web App is deployed to "Anyone"'); });
+    }
+
+    function normDir(d){ d=String(d||'').toLowerCase();
+      if(/^(in|inbound|incoming)$/.test(d)) return 'inbound';
+      if(/^(out|outbound|outgoing)$/.test(d)) return 'outbound';
+      return 'unknown'; }
+    function collectLeads(p){
+      if(!p) return [];
+      if(Array.isArray(p.inboundLeads)||Array.isArray(p.outboundLeads)){
+        const inb=(p.inboundLeads||[]).map(l=>{l.direction='inbound'; return l;});
+        const out=(p.outboundLeads||[]).map(l=>{l.direction='outbound'; return l;});
+        return inb.concat(out);
+      }
+      if(Array.isArray(p.leads)) return p.leads.map(l=>{l.direction=normDir(l.direction); return l;});
+      return [];
+    }
+    function onPayload(p,isPoll){
+      ALL=collectLeads(p);
+      KEYMAP={}; ALL.forEach((l,i)=>{ l._key=l.leadId||('k'+i); KEYMAP[l._key]=l; });
+      setTxt('genAt',(p&&p.generatedAt)||'—');
+      if(p&&p.sheetUrl) sheetUrl=p.sheetUrl;
+      renderToggleCounts(); detectNew(); buildNotifications();
+      if(!drawerOpen()) applyFilters();
+    }
+    function drawerOpen(){ return document.getElementById('drawer').classList.contains('open'); }
+
+    function renderToggleCounts(){
+      const inb=ALL.filter(l=>l.direction==='inbound').length, out=ALL.filter(l=>l.direction==='outbound').length;
+      setTxt('cAll',ALL.length); setTxt('cIn',inb); setTxt('cOut',out);
+      document.getElementById('dirHint').classList.toggle('hidden', !(ALL.length>0 && inb===0 && out===0));
+    }
+    function setDir(d){ activeDir=d; currentPage=1;
+      document.querySelectorAll('[data-dir]').forEach(b=>{ const on=b.getAttribute('data-dir')===d;
+        b.classList.toggle('active',on); b.classList.toggle('text-slate-700',on); b.classList.toggle('text-white/80',!on); });
+      applyFilters();
+    }
+    function setRange(r){ activeRange=r; currentPage=1;
+      document.querySelectorAll('[data-range]').forEach(b=>{ const on=b.getAttribute('data-range')===r;
+        b.classList.toggle('active',on); b.classList.toggle('text-white/70',!on); });
+      applyFilters();
+    }
+
+    function currentFiltered(){
+      const fTemp=val('fTemp'), fPur=val('fPurpose'), q=val('fSearch').toLowerCase().trim(), now=Date.now();
+      return ALL.filter(l=>{
+        if(activeDir!=='all' && l.direction!==activeDir) return false;
+        if(activeRange!=='all' && l.callMs){ const days=activeRange==='1'?1:parseInt(activeRange,10); if(now-l.callMs>days*86400000) return false; }
+        if(fTemp!=='all' && (l.temp||'')!==fTemp) return false;
+        if(fPur!=='all' && (l.purpose||'')!==fPur) return false;
+        if(q){ const hay=((l.name||'')+' '+(l.phone||'')+' '+(l.summary||'')+' '+(l.origin||'')).toLowerCase(); if(hay.indexOf(q)<0) return false; }
+        return true;
+      });
+    }
+    function applyFilters(){
+      let f=currentFiltered(); const s=val('fSort');
+      if(s==='newest') f.sort((a,b)=>(b.callMs||0)-(a.callMs||0));
+      else if(s==='oldest') f.sort((a,b)=>(a.callMs||0)-(b.callMs||0));
+      else if(s==='az') f.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+      renderKPIs(f); renderCharts(f); renderChannel(f);
+      let rows=f;
+      if(activeKpi==='visits') rows=f.filter(l=>l.visitDate);
+      else if(activeKpi==='hot') rows=f.filter(l=>(l.temp||'').toLowerCase()==='hot');
+      else if(activeKpi==='callbacks') rows=f.filter(l=>l.needsCallback);
+      else if(activeKpi==='pickup') rows=f.filter(l=>l.pickup);
+      TABLE_ROWS=rows; clampPage_(); renderPage();
+    }
+    function val(id){ return document.getElementById(id).value; }
+
+    function renderKPIs(d){
+      const visits=d.filter(l=>l.visitDate).length;
+      setTxt('kpiTotal',d.length);
+      setTxt('kpiIn',d.filter(l=>l.direction==='inbound').length);
+      setTxt('kpiOut',d.filter(l=>l.direction==='outbound').length);
+      setTxt('kpiVisits',visits);
+      setTxt('kpiRate', d.length? Math.round(visits/d.length*100)+'%':'0%');
+      setTxt('kpiHot',d.filter(l=>(l.temp||'').toLowerCase()==='hot').length);
+      setTxt('kpiCallbacks',d.filter(l=>l.needsCallback).length);
+      setTxt('kpiCbOpen',d.filter(l=>l.needsCallback && !isAcked(l,'callback')).length);
+      setTxt('kpiPickup',d.filter(l=>l.pickup).length);
+      setTxt('liveCount',d.length); setTxt('totCount',d.length);
+    }
+    function renderChannel(d){
+      const inb=d.filter(l=>l.direction==='inbound'), out=d.filter(l=>l.direction==='outbound');
+      const ci=inb.length? Math.round(inb.filter(l=>l.visitDate).length/inb.length*100):0;
+      const co=out.length? Math.round(out.filter(l=>l.visitDate).length/out.length*100):0;
+      setTxt('convInLbl',ci+'%'); setTxt('convOutLbl',co+'%');
+      document.getElementById('convInBar').style.width=ci+'%';
+      document.getElementById('convOutBar').style.width=co+'%';
+      setTxt('tHot',d.filter(l=>(l.temp||'').toLowerCase()==='hot').length);
+      setTxt('tMed',d.filter(l=>(l.temp||'').toLowerCase()==='medium').length);
+      setTxt('tCold',d.filter(l=>(l.temp||'').toLowerCase()==='cold').length);
+    }
+    function renderCharts(d){
+      const inH=new Array(24).fill(0), outH=new Array(24).fill(0), viH=new Array(24).fill(0);
+      d.forEach(l=>{ if(!l.callMs) return; const h=new Date(l.callMs).getHours();
+        if(l.direction==='outbound') outH[h]++; else inH[h]++; if(l.visitDate) viH[h]++; });
+      let lo=24, hi=-1; for(let h=0;h<24;h++){ if(inH[h]||outH[h]||viH[h]){ if(h<lo)lo=h; if(h>hi)hi=h; } }
+      if(hi<0){ lo=9; hi=18; } lo=Math.max(0,lo-1); hi=Math.min(23,hi+1);
+      const labels=[], din=[], dout=[], dvi=[];
+      for(let h=lo;h<=hi;h++){ labels.push(fmtHour(h)); din.push(inH[h]); dout.push(outH[h]); dvi.push(viH[h]); }
+      const ctx=document.getElementById('hourChart').getContext('2d');
+      if(hourChart) hourChart.destroy();
+      hourChart=new Chart(ctx,{type:'bar',data:{labels:labels,datasets:[
+        {label:'Inbound',data:din,backgroundColor:'#10B981',borderRadius:4,barPercentage:.7,categoryPercentage:.7},
+        {label:'Outbound',data:dout,backgroundColor:'#8E2A3A',borderRadius:4,barPercentage:.7,categoryPercentage:.7},
+        {label:'Visits',data:dvi,backgroundColor:'#C8972F',borderRadius:4,barPercentage:.7,categoryPercentage:.7}
+      ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+        scales:{y:{beginAtZero:true,ticks:{precision:0},grid:{color:'#F1E9E4'}},x:{grid:{display:false}}}}});
+    }
+    function fmtHour(h){ const ap=h<12?'AM':'PM'; let hh=h%12; if(hh===0)hh=12; return hh+' '+ap; }
+
+    function dirBadge(dir){
+      if(dir==='inbound') return '<span class="inline-flex w-7 h-7 rounded-lg bg-emerald-100 text-emerald-600 items-center justify-center" title="Incoming">'+ic('arrow-down-left','w-3.5 h-3.5')+'</span>';
+      if(dir==='outbound') return '<span class="inline-flex w-7 h-7 rounded-lg bg-rose-100 text-brand items-center justify-center" title="Outgoing">'+ic('arrow-up-right','w-3.5 h-3.5')+'</span>';
+      return '<span class="inline-flex w-7 h-7 rounded-lg bg-slate-100 text-slate-400 items-center justify-center" title="Unknown">'+ic('phone','w-3.5 h-3.5')+'</span>';
+    }
+    function tempClass(t){ t=(t||'').toLowerCase();
+      if(t==='hot') return 'bg-rose-100 text-rose-700 border-rose-300';
+      if(t==='medium') return 'bg-amber-100 text-amber-800 border-amber-300';
+      if(t==='cold') return 'bg-slate-100 text-slate-600 border-slate-300';
+      return 'bg-slate-100 text-slate-600 border-slate-300'; }
+    function visitWhen(l){ return l.visitDate?(l.visitDate+(l.visitTime?' '+l.visitTime:'')):''; }
+    function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    function renderTable(rows){
+      const tb=document.getElementById('tbody');
+      if(!rows.length){ tb.innerHTML='<tr><td colspan="9" class="py-8 text-center text-slate-400 font-medium"><span class="inline-block w-7 h-7 mb-2">'+ic('folder-open','w-7 h-7')+'</span><br>No calls match these filters.</td></tr>'; return; }
+      tb.innerHTML=rows.map(l=>{
+        const visitHTML=l.visitDate?'<span class="font-bold text-emerald-700">'+esc(visitWhen(l))+'</span>':'<span class="text-slate-300">—</span>';
+        let cbHTML='<span class="text-slate-300">—</span>';
+        if(l.needsCallback) cbHTML='<span class="font-bold text-brand">'+(esc(l.callbackAt)||'ASAP')+'</span><span class="inline-block ml-1 bg-rose-100 text-rose-800 text-[9px] px-1.5 py-0.5 rounded font-semibold">Exec</span>';
+        const originHTML=l.pickup
+          ? '<div class="text-slate-700">'+(esc(l.origin)||'—')+'</div><span class="inline-block mt-0.5 bg-amber-100 text-amber-800 text-[9px] px-1.5 py-0.5 rounded font-bold border border-amber-300">🚖 '+(esc(l.pickupArea)||'Pickup')+'</span>'
+          : '<span class="text-slate-500">'+(esc(l.origin)||'—')+'</span>';
+        const summaryCell=l.summary
+          ? '<div class="cursor-pointer group" onclick="openDrawer(\''+l._key+'\')"><p class="text-slate-600 line-clamp-2 group-hover:text-brand">'+esc(l.summary)+'</p><span class="text-[10px] text-brand font-semibold">Open ▸</span></div>'
+          : '<span class="text-slate-300">—</span>';
+        const rec=l.recordingUrl
+          ? '<button onclick="openDrawer(\''+l._key+'\')" class="inline-flex items-center gap-1 bg-rose-50 text-brand hover:bg-rose-100 font-bold text-[11px] px-2.5 py-1 rounded-lg transition">'+ic('play','w-2.5 h-2.5')+' Play</button>'
+          : '<span class="text-slate-300 text-[11px]">None</span>';
+        return '<tr class="hover:bg-slate-50/80 align-top">'+
+          '<td class="py-3.5 px-3">'+dirBadge(l.direction)+'</td>'+
+          '<td class="py-3.5 px-3"><div class="font-bold text-slate-900 truncate cursor-pointer hover:text-brand" title="'+esc(l.name)+'" onclick="openDrawer(\''+l._key+'\')">'+(esc(l.name)||'Unknown')+'</div>'+
+            '<a href="'+(l.phone?('tel:'+esc(l.phone)):'#')+'" class="text-brand hover:underline font-semibold text-[11px]">'+(esc(l.phone)||'—')+'</a>'+
+            '<div class="text-[10px] text-slate-400 mt-0.5">'+(esc(l.callDisplay)||'')+'</div></td>'+
+          '<td class="py-3.5 px-3"><span class="inline-block px-2 py-1 rounded-md border text-[10px] font-bold uppercase '+tempClass(l.temp)+'">'+(esc(l.temp)||'—')+'</span></td>'+
+          '<td class="py-3.5 px-3"><div class="font-semibold text-slate-800 truncate" title="'+esc(l.purpose)+'">'+(esc(l.purpose)||'—')+'</div>'+
+            '<div class="text-slate-400 text-[11px] mt-0.5">Visitors: '+(esc(l.visitors)||'—')+'</div>'+
+            '<div class="text-slate-400 text-[10px] truncate" title="'+esc(l.timeline)+'">Timeline: '+(esc(l.timeline)||'N/A')+'</div></td>'+
+          '<td class="py-3.5 px-3">'+visitHTML+'</td>'+
+          '<td class="py-3.5 px-3">'+cbHTML+'</td>'+
+          '<td class="py-3.5 px-3">'+originHTML+'</td>'+
+          '<td class="py-3.5 px-3">'+summaryCell+'</td>'+
+          '<td class="py-3.5 px-3 text-center">'+rec+'</td></tr>';
+      }).join('');
+    }
+
+    function kpiClick(k){
+      currentPage=1;
+      activeKpi=(activeKpi===k && k!=='all')?'all':k;
+      document.querySelectorAll('.kpi').forEach(el=>el.classList.toggle('active',el.getAttribute('data-kpi')===activeKpi && activeKpi!=='all'));
+      const chip=document.getElementById('drillChip');
+      if(activeKpi==='all'){ chip.classList.add('hidden'); chip.classList.remove('flex'); }
+      else { chip.classList.remove('hidden'); chip.classList.add('flex');
+        setTxt('drillLabel',{visits:'Visits booked',hot:'Hot leads',callbacks:'Exec callbacks',pickup:'Pickup requested'}[activeKpi]||'All'); }
+      applyFilters();
+    }
+
+    function ackKey(l,t){ return l._key+'|'+t; }
+    function isAcked(l,t){ if(LOCAL_ACK[ackKey(l,t)]) return true; return t==='visit'?!!l.visitAck:!!l.callbackAck; }
+    function hasVisitNotif(l){ return !!l.visitDate; }
+    function hasCbNotif(l){ return !!l.needsCallback; }
+    function acknowledge(key,type,ev){
+      if(ev) ev.stopPropagation();
+      const l=KEYMAP[key]; if(!l) return;
+      LOCAL_ACK[ackKey(l,type)]=true; if(type==='visit') l.visitAck=true; else l.callbackAck=true;
+      buildNotifications(); renderKPIs(currentFiltered());
+      if(API_URL){
+        apiGet({action:'ack',leadId:l._key,type:type})
+          .then(r=>{ if(!r||!r.ok){ revertAck(l,type); toast('⚠️ Could not save — try again'); } })
+          .catch(()=>{ revertAck(l,type); toast('⚠️ Could not save — check connection'); });
+      }
+    }
+    function revertAck(l,type){ delete LOCAL_ACK[ackKey(l,type)]; if(type==='visit') l.visitAck=false; else l.callbackAck=false; buildNotifications(); renderKPIs(currentFiltered()); }
+    function detectNew(){
+      const visNow=new Set(ALL.filter(hasVisitNotif).map(l=>l._key)), cbNow=new Set(ALL.filter(hasCbNotif).map(l=>l._key));
+      if(lastVisitIds===null){ lastVisitIds=visNow; lastCbIds=cbNow; return; }
+      const fV=ALL.filter(l=>hasVisitNotif(l)&&!lastVisitIds.has(l._key)&&!isAcked(l,'visit'));
+      const fC=ALL.filter(l=>hasCbNotif(l)&&!lastCbIds.has(l._key)&&!isAcked(l,'callback'));
+      if(fV.length||fC.length) pingBell();
+      fV.forEach(l=>toast('📅 New site visit — '+(l.name||'lead')+(l.visitDate?(' · '+l.visitDate+(l.visitTime?' '+l.visitTime:'')):'')));
+      fC.forEach(l=>toast('📞 Executive callback — '+(l.name||'lead')+(l.callbackAt?(' · '+l.callbackAt):'')));
+      lastVisitIds=visNow; lastCbIds=cbNow;
+    }
+    function pingBell(){ const b=document.getElementById('notifBadge'); b.classList.remove('ping'); void b.offsetWidth; b.classList.add('ping'); }
+    function toast(msg){ const w=document.getElementById('toasts'); const el=document.createElement('div');
+      el.className='bg-headerDark text-white text-xs font-semibold px-4 py-3 rounded-lg shadow-lg max-w-xs'; el.innerText=msg;
+      w.appendChild(el); setTimeout(()=>{ el.style.transition='opacity .4s'; el.style.opacity='0'; setTimeout(()=>el.remove(),400); },7000); }
+
+    function buildNotifications(){
+      const openVisits=ALL.filter(l=>hasVisitNotif(l)&&!isAcked(l,'visit')), openCbs=ALL.filter(l=>hasCbNotif(l)&&!isAcked(l,'callback'));
+      setTxt('notifBadge',openVisits.length+openCbs.length);
+      let html='';
+      html+=notifHeader('📞 Executive callback requested',openCbs.length,'#8E2A3A');
+      if(openCbs.length){ openCbs.sort((a,b)=>(b.callMs||0)-(a.callMs||0)).forEach(l=>{ html+=notifRow(l,'callback','<span class="text-[11px] font-semibold text-brand">'+(esc(l.callbackAt)||'ASAP')+'</span>',l.phone?esc(l.phone):'—'); }); }
+      else html+=notifEmpty('No callbacks pending.');
+      html+=notifHeader('📅 Site visit booked',openVisits.length,'#047857');
+      if(openVisits.length){ const byDate={}; openVisits.forEach(l=>{(byDate[l.visitDate]=byDate[l.visitDate]||[]).push(l);});
+        Object.keys(byDate).sort().forEach(dd=>{ html+='<div class="px-4 pt-2 pb-1 bg-slate-50 text-[11px] font-bold text-slate-600">'+esc(dd)+' · '+byDate[dd].length+'</div>';
+          byDate[dd].sort((a,b)=>String(a.visitTime).localeCompare(String(b.visitTime))).forEach(l=>{ html+=notifRow(l,'visit','<span class="text-[11px] '+(l.pickupArea?'text-amber-700 font-semibold':'text-slate-400')+'">'+(l.visitTime?esc(l.visitTime):'')+(l.pickupArea?(' · 🚖 '+esc(l.pickupArea)):'')+'</span>',l.phone?esc(l.phone):'—'); }); });
+      } else html+=notifEmpty('No site visits booked.');
+      document.getElementById('notifBody').innerHTML=html;
+    }
+    function notifHeader(t,c,color){ return '<div class="px-4 py-2 flex items-center justify-between sticky top-0 z-10" style="background:'+color+'"><span class="text-[12px] font-bold text-white">'+t+'</span><span class="text-[10px] font-extrabold bg-white/90 text-slate-800 px-2 py-0.5 rounded-full">'+c+'</span></div>'; }
+    function notifEmpty(m){ return '<div class="px-4 py-3 text-[12px] text-slate-400">'+m+'</div>'; }
+    function notifRow(l,type,metaRight,sub){ return '<div class="px-4 py-2.5 flex items-center gap-3 hover:bg-slate-50">'+
+      '<div class="flex-grow cursor-pointer min-w-0" onclick="openDrawer(\''+l._key+'\')"><div class="flex items-center justify-between gap-2"><span class="font-bold text-slate-800 text-[13px] truncate">'+(esc(l.name)||'—')+'</span>'+metaRight+'</div><div class="text-[11px] text-slate-500 mt-0.5">'+sub+'</div></div>'+
+      '<button class="ackBtn shrink-0 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg px-2.5 py-1.5 text-[11px] font-bold flex items-center gap-1" onclick="acknowledge(\''+l._key+'\',\''+type+'\',event)">'+ic('check','w-3 h-3')+' Done</button></div>'; }
+    function toggleNotif(){ document.getElementById('notifPanel').classList.toggle('hidden'); }
+
+    /* drawer */
+    function openDrawer(key){
+      const l=KEYMAP[key]; if(!l) return; drawerKey=key;
+      setTxt('dName',l.name||'Lead');
+      const ph=document.getElementById('dPhone'); ph.innerText=l.phone||'—'; ph.href=l.phone?('tel:'+l.phone):'#';
+      setTxt('dCallTime', l.callDisplay?('· '+l.callDisplay):'');
+      const di=document.getElementById('dDirIcon');
+      di.className='w-11 h-11 rounded-xl flex items-center justify-center shrink-0 '+(l.direction==='outbound'?'bg-rose-100 text-brand':l.direction==='inbound'?'bg-emerald-100 text-emerald-600':'bg-slate-100 text-slate-400');
+      di.innerHTML=ic(l.direction==='outbound'?'arrow-up-right':l.direction==='inbound'?'arrow-down-left':'phone','w-5 h-5');
+      setTxt('dSummary',l.summary||'No summary available.');
+      const pills=[];
+      if(l.intent) pills.push('<span class="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-rose-50 text-brand border border-rose-200">Intent: '+esc(l.intent)+'</span>');
+      if(l.sentiment){ pills.push('<span class="text-[11px] font-bold px-2.5 py-1 rounded-lg '+sentClass(l.sentiment)+'">Sentiment: '+esc(l.sentiment)+'</span>'); }
+      document.getElementById('dPills').innerHTML=pills.join('');
+      setTxt('dVisitWhen', l.visitDate?('Booked for '+visitWhen(l)):'No visit booked');
+      paintArrived(!!l.arrived);
+      const a=document.getElementById('aud');
+      if(l.recordingUrl){ document.getElementById('dAudioCard').classList.remove('hidden'); document.getElementById('dNoAudio').classList.add('hidden'); a.src=l.recordingUrl; a.load(); resetPlayer(); }
+      else { document.getElementById('dAudioCard').classList.add('hidden'); document.getElementById('dNoAudio').classList.remove('hidden'); a.pause(); a.removeAttribute('src'); }
+      renderTranscript(l);
+      document.getElementById('drawer').classList.add('open');
+      const s=document.getElementById('drawerScrim'); s.classList.remove('opacity-0','pointer-events-none');
+    }
+    function closeDrawer(){ document.getElementById('aud').pause();
+      document.getElementById('drawer').classList.remove('open');
+      const s=document.getElementById('drawerScrim'); s.classList.add('opacity-0','pointer-events-none'); drawerKey=null; }
+    function sentClass(s){ s=String(s).toLowerCase();
+      if(s.indexOf('pos')>=0) return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+      if(s.indexOf('neg')>=0) return 'bg-rose-50 text-rose-700 border border-rose-200';
+      return 'bg-slate-100 text-slate-600 border border-slate-200'; }
+    function renderTranscript(l){
+      const box=document.getElementById('dTranscript'); let t=l.transcript;
+      if(typeof t==='string' && t.trim()){ box.innerHTML='<pre class="text-xs text-slate-600 whitespace-pre-wrap font-sans">'+esc(t)+'</pre>'; return; }
+      if(Array.isArray(t) && t.length){
+        box.innerHTML=t.map(turn=>{ const ai=/^(ai|agent|bot|assistant|shivani)/i.test(String(turn.role||turn.name||''));
+          const bg=ai?'bg-slate-100':'bg-rose-50 border border-rose-100', icon=ai?'🤖':'🧑';
+          return '<div class="'+bg+' rounded-xl p-3"><div class="flex items-center justify-between mb-1"><span class="text-[11px] font-bold text-slate-700">'+icon+' '+esc(turn.name||(ai?'Voice AI':'Caller'))+'</span><span class="text-[10px] text-slate-400">'+esc(turn.time||'')+'</span></div><p class="text-xs text-slate-700 leading-relaxed">'+esc(turn.text||'')+'</p></div>';
+        }).join(''); return;
+      }
+      box.innerHTML='<div class="text-xs text-slate-400 italic">Full transcript not available for this call. Summary shown above. <span class="not-italic font-semibold text-brand">Send a <code class="bg-slate-100 px-1 rounded">transcript</code> field from the backend to show turn-by-turn dialogue here.</span></div>';
+    }
+    function paintArrived(arrived){
+      const v=document.getElementById('dVisited'), p=document.getElementById('dPending');
+      v.className='px-3 py-1.5 rounded-lg text-xs font-bold transition '+(arrived?'bg-emerald-500 text-white shadow':'text-slate-500');
+      p.className='px-3 py-1.5 rounded-lg text-xs font-bold transition '+(!arrived?'bg-brand text-white shadow':'text-slate-500');
+    }
+    function setArrived(arrived){
+      const l=KEYMAP[drawerKey]; if(!l) return; l.arrived=arrived; paintArrived(arrived);
+      if(API_URL){
+        apiGet({action:'arrived',leadId:l._key,arrived:String(arrived)})
+          .then(r=>{ if(!r||!r.ok) toast('⚠️ Visit status not saved to sheet'); })
+          .catch(()=>toast('⚠️ Visit status not saved — check connection'));
+      } else { toast('ℹ️ Saved locally (set API_URL to persist)'); }
+    }
+
+    /* audio */
+    function initWave(){ const wf=document.getElementById('dWave'); let h=''; const N=46;
+      for(let i=0;i<N;i++){ const ht=20+Math.round(60*Math.abs(Math.sin(i*0.7))+Math.random()*25); h+='<span style="height:'+Math.min(100,ht)+'%"></span>'; }
+      wf.innerHTML=h; wf.onclick=seekFromWave; }
+    function resetPlayer(){ setTxt('dProgress','0%'); setTxt('dPlayLbl','Play Audio'); document.getElementById('dPlayIcon').innerHTML=ic('play','w-4 h-4'); paintWave(0); }
+    function togglePlay(){ const a=document.getElementById('aud'); if(!a.src) return;
+      if(a.paused){ a.play(); setTxt('dPlayLbl','Pause'); document.getElementById('dPlayIcon').innerHTML=ic('pause','w-4 h-4'); }
+      else { a.pause(); setTxt('dPlayLbl','Play Audio'); document.getElementById('dPlayIcon').innerHTML=ic('play','w-4 h-4'); } }
+    function onMeta(){ setTxt('dDuration',mmss(document.getElementById('aud').duration)); }
+    function onTime(){ const a=document.getElementById('aud'); if(!a.duration) return; const r=a.currentTime/a.duration; setTxt('dProgress',Math.round(r*100)+'%'); paintWave(r); }
+    function onEnded(){ setTxt('dPlayLbl','Play Audio'); document.getElementById('dPlayIcon').innerHTML=ic('play','w-4 h-4'); }
+    function paintWave(ratio){ const bars=document.querySelectorAll('#dWave span'); const cut=Math.floor(bars.length*ratio); bars.forEach((b,i)=>b.classList.toggle('on',i<cut)); }
+    function seekFromWave(e){ const a=document.getElementById('aud'); if(!a.duration) return; const r=document.getElementById('dWave').getBoundingClientRect(); a.currentTime=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width))*a.duration; }
+    function mmss(s){ if(!s||isNaN(s)) return '—'; s=Math.round(s); return Math.floor(s/60)+'m '+String(s%60).padStart(2,'0')+'s'; }
+
+    /* sheet + export */
+    function loadSheetUrl(){ if(!API_URL) return; apiGet({action:'sheetUrl'}).then(r=>{ if(r&&r.ok&&r.url) sheetUrl=r.url; }).catch(()=>{}); }
+    function openSheet(){ if(sheetUrl){ window.open(sheetUrl,'_blank'); } else { toast('ℹ️ Sheet URL not loaded yet (needs API_URL)'); } }
+    function exportExcel(){
+      let f=currentFiltered();
+      if(activeKpi==='visits') f=f.filter(l=>l.visitDate);
+      else if(activeKpi==='hot') f=f.filter(l=>(l.temp||'').toLowerCase()==='hot');
+      else if(activeKpi==='callbacks') f=f.filter(l=>l.needsCallback);
+      else if(activeKpi==='pickup') f=f.filter(l=>l.pickup);
+      if(!f.length){ toast('Nothing to export for this view'); return; }
+      const rows=f.map(l=>({'Direction':l.direction||'','Call Time':l.callDisplay||'','Name':l.name||'','Phone':l.phone||'','Temperature':l.temp||'','Purpose':l.purpose||'','Visitors':l.visitors||'','Config':l.flatSize||'','Timeline':l.timeline||'','Visit Date':l.visitDate||'','Visit Time':l.visitTime||'','Needs Exec Callback':l.needsCallback?'Yes':'','Callback At':l.callbackAt||'','Origin':l.origin||'','Pickup':l.pickup?'Yes':'','Pickup Area':l.pickupArea||'','Arrived':l.arrived?'Yes':'','Sentiment':l.sentiment||'','Intent':l.intent||'','Summary':l.summary||'','Recording URL':l.recordingUrl||''}));
+      const ws=XLSX.utils.json_to_sheet(rows);
+      ws['!cols']=Object.keys(rows[0]).map(k=>({wch:k==='Summary'?48:(k==='Recording URL'?34:16)}));
+      const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Call Log');
+      const d=new Date(), stamp=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      XLSX.writeFile(wb,'ShivVista_'+(activeDir==='all'?'All':activeDir)+'_'+activeRange+'_'+stamp+'.xlsx');
+      toast('⬇️ Exported '+rows.length+' rows');
+    }
+
+    function onFilterChange(){ currentPage=1; applyFilters(); }
+    function clampPage_(){ const pages=Math.max(1,Math.ceil(TABLE_ROWS.length/PAGE_SIZE)); if(currentPage>pages) currentPage=pages; if(currentPage<1) currentPage=1; }
+    function renderPage(){
+      const total=TABLE_ROWS.length, start=(currentPage-1)*PAGE_SIZE, slice=TABLE_ROWS.slice(start,start+PAGE_SIZE);
+      renderTable(slice);
+      setTxt('totCount', total);
+      setTxt('rangeLbl', total? (start+1)+'\u2013'+(start+slice.length) : '0');
+      renderPager(total);
+    }
+    function goToPage(n){ currentPage=n; clampPage_(); renderPage(); const t=document.getElementById('tbody'); if(t) t.scrollIntoView({block:'nearest'}); }
+    function pbtn(label, enabled, onclick){
+      return '<button '+(enabled?('onclick="'+onclick+'"'):'disabled')+' class="px-2.5 py-1 rounded-lg border text-[11px] font-bold transition '+(enabled?'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 active:scale-95':'bg-slate-100 border-slate-200 text-slate-300 cursor-not-allowed')+'">'+label+'</button>';
+    }
+    function renderPager(total){
+      const p=document.getElementById('pager'); if(!p) return;
+      const pages=Math.max(1,Math.ceil(total/PAGE_SIZE));
+      if(total<=PAGE_SIZE){ p.innerHTML=''; return; }
+      p.innerHTML = pbtn('\u2039 Prev', currentPage>1, 'goToPage('+(currentPage-1)+')')
+        + '<span class="px-2.5 font-semibold text-slate-600">Page '+currentPage+' / '+pages+'</span>'
+        + pbtn('Next \u203a', currentPage<pages, 'goToPage('+(currentPage+1)+')');
+    }
+    function setTxt(id,v){ const el=document.getElementById(id); if(el) el.innerText=v; }
+  </script>
+</body>
+</html>
